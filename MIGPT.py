@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 from http.cookies import SimpleCookie
 from pathlib import Path
 import threading
@@ -12,6 +13,7 @@ from minaservice import MiNAService
 from miaccount import MiAccount
 from requests.utils import cookiejar_from_dict
 from V3 import Chatbot
+from queue import Queue
 
 LATEST_ASK_API = "https://userprofile.mina.mi.com/device_profile/v2/conversation?source=dialogu&hardware={hardware}&timestamp={timestamp}&limit=2"
 COOKIE_TEMPLATE = "deviceId={device_id}; serviceToken={service_token}; userId={user_id}"
@@ -30,10 +32,10 @@ HARDWARE_COMMAND_DICT = {
     "LX5A": "5-1",  # 小爱音箱遥控版（黑色）
     # add more here
 }
-MI_USER = "你的小米账号"  # 小米账号（手机号）
-MI_PASS = "你的小米账号密码"  # 小米账号密码
-OPENAI_API_KEY = "你的API KEY"  # openai的api key
-SOUND_TYPE = "你的音箱型号"  # 音箱型号
+MI_USER = ""  # 小米账号（手机号）
+MI_PASS = ""  # 小米账号密码
+OPENAI_API_KEY = ""  # openai的api key
+SOUND_TYPE = "LX06"  # 音箱型号
 
 # 检查必要的数据
 if MI_USER == "你的小米账号":
@@ -193,7 +195,7 @@ class MiGPT:
             return new_timestamp, last_record.get("query", "")
         return False, None
 
-    async def run_forever(self):
+    async def run_forever(self,q:Queue):
         global SWITCH
         print("正在运行 MiGPT, 请用\"打开/关闭高级对话\"控制对话模式。")
         async with ClientSession() as session:
@@ -222,6 +224,11 @@ class MiGPT:
                         print("\033[1;32m高级对话已关闭\033[0m")
                         await self.do_tts("高级对话已关闭")
                         continue
+
+                    if query.startswith('重启后端'):
+                        await self.do_tts("好的，正在重启python后端，过几秒再问gpt吧")
+                        q.put("restart")
+                        return
                     if SWITCH:
                         commas = 0
                         wait_times = 3
@@ -301,5 +308,12 @@ class MiGPT:
 
 
 if __name__ == "__main__":
+    q = Queue()
+
     miboy = MiGPT()
-    asyncio.run(miboy.run_forever())
+    asyncio.run(miboy.run_forever(q))
+    while True:
+        msg = q.get()
+        if msg == "restart":
+            asyncio.run(miboy.run_forever(q))
+
